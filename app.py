@@ -553,50 +553,167 @@ elif pagina == "📅 Visualizza Calendario":
         oggi = datetime.date.today()
         giorni_settimana = [lunedi_corrente + datetime.timedelta(days=i) for i in range(7)]
 
-        cols = st.columns(7)
-        for col_idx, (col, giorno) in enumerate(zip(cols, giorni_settimana)):
-            with col:
-                is_oggi = (giorno == oggi)
-                cls_oggi = "giorno-oggi" if is_oggi else ""
+        # Raccoglie tutte le fasce orarie presenti nella settimana, ordinate
+        fasce_settimana = sorted(
+            df_settimana[["Inizio", "Fine"]]
+            .drop_duplicates()
+            .apply(lambda r: (r["Inizio"], r["Fine"]), axis=1)
+            .tolist()
+        ) if not df_settimana.empty else []
 
-                # Header giorno
-                st.markdown(
-                    f"<div class='{cls_oggi}'>"
-                    f"<div class='giorno-header'>"
-                    f"<div class='giorno-numero'>{giorno.day}</div>"
-                    f"<div class='giorno-nome'>{GIORNI_NOMI[giorno.weekday()][:3]}</div>"
-                    f"</div></div>",
-                    unsafe_allow_html=True,
-                )
+        # Costruisce la griglia come unica tabella HTML
+        # Ogni riga = una fascia oraria; ogni colonna = un giorno
+        CARD_H = 72   # altezza fissa card in px
 
-                # Cella eventi
-                eventi_giorno = df_settimana[df_settimana["Data"] == giorno]
+        html = """
+        <style>
+        .cal-table { width:100%; border-collapse:separate; border-spacing:4px 0; table-layout:fixed; }
+        .cal-th {
+            background:#1a1a2e; color:white;
+            border-radius:10px 10px 0 0;
+            padding:8px 4px 6px 4px;
+            text-align:center; font-size:0.78rem;
+        }
+        .cal-th.oggi { background:#4F86C6; }
+        .cal-num { font-size:1.45rem; font-weight:800; line-height:1.1; }
+        .cal-dn  { font-size:0.68rem; opacity:.85; text-transform:uppercase; letter-spacing:.05em; }
+        .cal-td {
+            background:#f7f8fc;
+            border-left:1.5px solid #e2e6f0;
+            border-right:1.5px solid #e2e6f0;
+            padding:4px 4px;
+            vertical-align:top;
+            width:14.28%;
+        }
+        .cal-td-bottom {
+            background:#f7f8fc;
+            border-left:1.5px solid #e2e6f0;
+            border-right:1.5px solid #e2e6f0;
+            border-bottom:1.5px solid #e2e6f0;
+            border-radius:0 0 10px 10px;
+            height:12px;
+        }
+        .cal-td-vuoto { background:#f7f8fc; border-left:1.5px solid #e2e6f0; border-right:1.5px solid #e2e6f0; padding:4px; }
+        .ev {
+            border-radius:7px;
+            padding:6px 8px;
+            color:white;
+            font-size:0.74rem;
+            line-height:1.35;
+            height:""" + str(CARD_H) + """px;
+            box-sizing:border-box;
+            overflow:hidden;
+            display:flex;
+            flex-direction:column;
+            justify-content:center;
+        }
+        .ev-titolo { font-weight:700; font-size:0.76rem; }
+        .ev-orario { opacity:.88; font-size:0.68rem; margin-top:2px; }
+        .ev-vuoto  {
+            height:""" + str(CARD_H) + """px;
+            background:#eef0f6;
+            border-radius:7px;
+            border:1.5px dashed #d0d4e8;
+        }
+        .fascia-label {
+            font-size:0.65rem; color:#888;
+            text-align:right; padding-right:6px;
+            white-space:nowrap; vertical-align:middle;
+            width:52px;
+        }
+        </style>
+        <table class="cal-table">
+        <thead><tr><td style="width:52px"></td>
+        """
 
-                celle_html = "<div class='giorno-cella'>"
-                if eventi_giorno.empty:
-                    celle_html += "<div class='vuoto-label'>—</div>"
-                celle_html += "</div>"
-                st.markdown(celle_html, unsafe_allow_html=True)
+        for giorno in giorni_settimana:
+            cls = "oggi" if giorno == oggi else ""
+            html += (
+                f"<th class='cal-th {cls}'>"
+                f"<div class='cal-num'>{giorno.day}</div>"
+                f"<div class='cal-dn'>{GIORNI_NOMI[giorno.weekday()][:3]}</div>"
+                f"</th>"
+            )
+        html += "</tr></thead><tbody>"
 
-                # Eventi con pulsante elimina (fuori dall'HTML statico)
-                for _, ev in eventi_giorno.iterrows():
-                    colore = colori_materia.get(ev["Materia"], "#4F86C6")
-                    st.markdown(
-                        f"<div class='evento-card' style='background:{colore};'>"
-                        f"<div class='evento-titolo'>{ev['Materia']}</div>"
-                        f"<div class='evento-orario'>🕐 {ev['Inizio']} – {ev['Fine']}</div>"
-                        f"</div>",
-                        unsafe_allow_html=True,
-                    )
-                    # Pulsante elimina sotto ogni evento
-                    ev_index = df[(df["Data"] == ev["Data"]) &
-                                  (df["Materia"] == ev["Materia"]) &
-                                  (df["Inizio"] == ev["Inizio"])].index
-                    if len(ev_index) > 0:
-                        real_idx = ev_index[0]
-                        if st.button("✕", key=f"del_{real_idx}", help=f"Rimuovi {ev['Materia']}"):
-                            st.session_state.calendario_eventi.pop(real_idx)
-                            st.rerun()
+        if not fasce_settimana:
+            # Settimana senza eventi
+            html += "<tr><td class='fascia-label'></td>"
+            for _ in giorni_settimana:
+                html += "<td class='cal-td cal-td-bottom' style='height:80px;text-align:center;color:#aab;font-size:0.75rem;padding-top:20px;'>—</td>"
+            html += "</tr>"
+        else:
+            for fascia_idx, (inizio_h, fine_h) in enumerate(fasce_settimana):
+                is_ultima = (fascia_idx == len(fasce_settimana) - 1)
+                td_class = "cal-td" + (" cal-td-bottom" if is_ultima else "")
+                html += f"<tr><td class='fascia-label'>{inizio_h}<br><span style='color:#bbb'>→</span><br>{fine_h}</td>"
+
+                for giorno in giorni_settimana:
+                    ev_cella = df_settimana[
+                        (df_settimana["Data"] == giorno) &
+                        (df_settimana["Inizio"] == inizio_h) &
+                        (df_settimana["Fine"] == fine_h)
+                    ]
+                    if ev_cella.empty:
+                        html += f"<td class='{td_class}'><div class='ev-vuoto'></div></td>"
+                    else:
+                        ev = ev_cella.iloc[0]
+                        colore = colori_materia.get(ev["Materia"], "#4F86C6")
+                        html += (
+                            f"<td class='{td_class}'>"
+                            f"<div class='ev' style='background:{colore};'>"
+                            f"<div class='ev-titolo'>{ev['Materia']}</div>"
+                            f"<div class='ev-orario'>🕐 {inizio_h} – {fine_h}</div>"
+                            f"</div></td>"
+                        )
+                html += "</tr>"
+
+            # Riga di chiusura fondo colonne (bordo arrotondato bottom)
+            if not is_ultima:
+                html += "<tr><td></td>"
+                for _ in giorni_settimana:
+                    html += "<td class='cal-td-bottom'></td>"
+                html += "</tr>"
+
+        html += "</tbody></table>"
+        st.markdown(html, unsafe_allow_html=True)
+
+        # ── Pulsanti elimina (sotto la griglia, per fascia) ──────────────────
+        # Streamlit non può mettere button dentro HTML puro,
+        # quindi li mostriamo in una sezione separata compatta
+        if not df_settimana.empty:
+            st.divider()
+            st.markdown("**Rimuovi un evento:**")
+            for fascia_idx, (inizio_h, fine_h) in enumerate(fasce_settimana):
+                for giorno in giorni_settimana:
+                    ev_cella = df_settimana[
+                        (df_settimana["Data"] == giorno) &
+                        (df_settimana["Inizio"] == inizio_h) &
+                        (df_settimana["Fine"] == fine_h)
+                    ]
+                    if not ev_cella.empty:
+                        ev = ev_cella.iloc[0]
+                        real_idx = df[
+                            (df["Data"] == ev["Data"]) &
+                            (df["Materia"] == ev["Materia"]) &
+                            (df["Inizio"] == ev["Inizio"])
+                        ].index
+                        if len(real_idx) > 0:
+                            colore = colori_materia.get(ev["Materia"], "#4F86C6")
+                            c1, c2 = st.columns([5, 1])
+                            with c1:
+                                st.markdown(
+                                    f"<div style='display:flex;align-items:center;gap:8px;padding:3px 0;'>"
+                                    f"<div style='width:10px;height:10px;border-radius:3px;background:{colore};flex-shrink:0;'></div>"
+                                    f"<span style='font-size:0.82rem;'>"
+                                    f"<b>{giorno.strftime('%a %d/%m')}</b> · {ev['Materia']} · {inizio_h}–{fine_h}"
+                                    f"</span></div>",
+                                    unsafe_allow_html=True,
+                                )
+                            with c2:
+                                if st.button("✕", key=f"del_{real_idx[0]}", help="Rimuovi"):
+                                    st.session_state.calendario_eventi.pop(real_idx[0])
+                                    st.rerun()
 
         # ── Legenda colori ───────────────────────────────────────────────────
         st.divider()
