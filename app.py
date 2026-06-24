@@ -109,6 +109,106 @@ def parse_orario(testo: str):
     return risultati
 
 
+def parse_tabella_orario(testo: str) -> list[dict]:
+    """
+    Riconosce il formato tabella settimanale tipo:
+      Giorno  08:30-10:00  10:15-11:45  ...
+      Lunedì  Analisi Mat  Fisica I     ...
+      ...
+      Periodo di riferimento: dal 26 giugno 2026 al 17 settembre 2026
+
+    Restituisce eventi per ogni combinazione giorno+fascia oraria+materia,
+    espansi su tutte le settimane del periodo, escludendo date passate.
+    """
+    oggi = datetime.date.today()
+    righe = [r.strip() for r in testo.splitlines() if r.strip()]
+
+    # 1) Trova il periodo dal testo (es. "dal 26 giugno 2026 al 17 settembre 2026")
+    d_inizio, d_fine = None, None
+    pattern_periodo = re.compile(
+        r"dal\s+(\d{1,2}\s+\w+(?:\s+\d{2,4})?)\s+al\s+(\d{1,2}\s+\w+(?:\s+\d{2,4})?)",
+        re.IGNORECASE,
+    )
+    for riga in righe:
+        m = pattern_periodo.search(riga.lower())
+        if m:
+            d_inizio = parse_data_italiana(m.group(1))
+            d_fine   = parse_data_italiana(m.group(2))
+            break
+
+    if not d_inizio or not d_fine:
+        return []  # senza periodo non possiamo espandere
+
+    # 2) Trova la riga di intestazione con gli orari
+    #    Es: "Giorno 08:30-10:00 10:15-11:45 13:00-14:30 14:45-16:15"
+    pattern_orario = re.compile(r"\d{1,2}[:\.]?\d{2}\s*[-–]\s*\d{1,2}[:\.]?\d{2}")
+    intestazione_idx = None
+    fasce_orarie = []  # lista di tuple ("08:30", "10:00")
+
+    for i, riga in enumerate(righe):
+        orari_trovati = parse_orario(riga)
+        if len(orari_trovati) >= 2:  # almeno 2 fasce nella stessa riga = intestazione
+            intestazione_idx = i
+            fasce_orarie = orari_trovati
+            break
+
+    if intestazione_idx is None or not fasce_orarie:
+        return []
+
+    # 3) Leggi le righe successive: ogni riga che inizia con un giorno è una riga dati
+    #    Es: "Lunedì Analisi Matematica Fisica I Informatica Studio Libero"
+    #    Strategia: split per trovare il giorno, poi le materie per posizione
+    eventi = []
+    nomi_giorni_lista = list(GIORNI_IT.keys())
+
+    for riga in righe[intestazione_idx + 1:]:
+        riga_lower = riga.lower()
+
+        # Cerca se la riga inizia con un nome giorno
+        giorno_num = None
+        giorno_nome = None
+        for nome, num in GIORNI_IT.items():
+            if riga_lower.startswith(nome):
+                giorno_num  = num
+                giorno_nome = nome
+                break
+
+        if giorno_num is None:
+            continue  # riga non è un giorno della settimana
+
+        # Rimuovi il nome del giorno dall'inizio e split il resto in materie
+        resto = riga[len(giorno_nome):].strip()
+
+        # Le materie sono separate da 2+ spazi (layout a colonne del PDF)
+        # Proviamo prima con doppio spazio, poi con spazio singolo come fallback
+        materie_riga = re.split(r"\s{2,}", resto)
+        if len(materie_riga) < len(fasce_orarie):
+            # Alcuni PDF usano tab o spazio singolo
+            materie_riga = resto.split("\t") if "\t" in resto else re.split(r"\s{1,}", resto, maxsplit=len(fasce_orarie)-1)
+
+        # Associa ogni fascia oraria alla materia corrispondente
+        for i, (inizio_h, fine_h) in enumerate(fasce_orarie):
+            if i >= len(materie_riga):
+                break
+            materia = materie_riga[i].strip().title()
+            if not materia or materia.lower() in ("studio libero", "ripasso settimanale", "tutorato", "-", ""):
+                continue  # salta slot non didattici
+
+            # Espandi su tutte le settimane del periodo
+            corrente = d_inizio
+            while corrente <= d_fine:
+                if corrente.weekday() == giorno_num and corrente >= oggi:
+                    eventi.append({
+                        "Data":    corrente,
+                        "Materia": materia,
+                        "Inizio":  inizio_h,
+                        "Fine":    fine_h,
+                    })
+                corrente += datetime.timedelta(days=1)
+
+    return eventi
+
+
 def parse_programma(testo: str) -> list[dict]:
     """
     Analizza il testo completo e restituisce una lista di eventi da aggiungere
@@ -117,6 +217,11 @@ def parse_programma(testo: str) -> list[dict]:
     oggi = datetime.date.today()
     testo_lower = testo.lower()
     eventi = []
+
+    # ── 0) Prova prima il formato tabella settimanale ────────────────────────
+    eventi_tabella = parse_tabella_orario(testo)
+    if eventi_tabella:
+        return eventi_tabella
 
     # ── A) Cerca blocchi "materia ... dal ... al ..." ────────────────────────
     # Pattern: "Corso di X dal 15 giugno al 17 settembre, lunedì e mercoledì dalle 9:00 alle 11:00"
@@ -268,11 +373,109 @@ if pagina == "📥 Inserimento":
 
 # ── PAGINA 2 ─────────────────────────────────────────────────────────────────
 elif pagina == "📅 Visualizza Calendario":
-    st.title("📅 Il tuo Calendario")
 
-    col_a, col_b = st.columns([6, 1])
-    with col_b:
-        if st.button("🗑️ Svuota tutto"):
+    MESI_NOMI = {
+        1: "Gennaio", 2: "Febbraio", 3: "Marzo", 4: "Aprile",
+        5: "Maggio", 6: "Giugno", 7: "Luglio", 8: "Agosto",
+        9: "Settembre", 10: "Ottobre", 11: "Novembre", 12: "Dicembre",
+    }
+    GIORNI_NOMI = ["Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato", "Domenica"]
+
+    # Colori per materia (assegnati dinamicamente)
+    PALETTE = [
+        "#4F86C6", "#E07B54", "#5BAD8F", "#A66CC9",
+        "#D4A843", "#C95B7A", "#4AADB5", "#7B8FA1",
+    ]
+
+    st.markdown("""
+    <style>
+    .settimana-header {
+        text-align: center;
+        font-size: 1.6rem;
+        font-weight: 700;
+        color: #1a1a2e;
+        margin-bottom: 0.2rem;
+    }
+    .mese-label {
+        text-align: center;
+        font-size: 0.95rem;
+        color: #555;
+        margin-bottom: 1.2rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+    }
+    .giorno-header {
+        background: #1a1a2e;
+        color: white;
+        border-radius: 10px 10px 0 0;
+        padding: 8px 4px 6px 4px;
+        text-align: center;
+        font-weight: 600;
+        font-size: 0.82rem;
+        letter-spacing: 0.04em;
+    }
+    .giorno-numero {
+        font-size: 1.5rem;
+        font-weight: 800;
+        line-height: 1.1;
+    }
+    .giorno-nome {
+        font-size: 0.72rem;
+        opacity: 0.85;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+    }
+    .giorno-cella {
+        background: #f7f8fc;
+        border-radius: 0 0 10px 10px;
+        min-height: 130px;
+        padding: 6px 4px;
+        border: 1.5px solid #e2e6f0;
+        border-top: none;
+    }
+    .giorno-oggi .giorno-header {
+        background: #4F86C6;
+    }
+    .evento-card {
+        border-radius: 7px;
+        padding: 5px 7px;
+        margin-bottom: 5px;
+        font-size: 0.75rem;
+        color: white;
+        line-height: 1.3;
+        word-break: break-word;
+    }
+    .evento-titolo {
+        font-weight: 700;
+        font-size: 0.78rem;
+    }
+    .evento-orario {
+        opacity: 0.88;
+        font-size: 0.7rem;
+    }
+    .nav-settimana {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 1.5rem;
+        margin-bottom: 1rem;
+    }
+    .vuoto-label {
+        color: #aab;
+        font-size: 0.72rem;
+        text-align: center;
+        padding-top: 18px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # ── Intestazione pagina ──────────────────────────────────────────────────
+    col_titolo, col_svuota = st.columns([5, 1])
+    with col_titolo:
+        st.title("📅 Il tuo Calendario")
+    with col_svuota:
+        st.write("")
+        if st.button("🗑️ Svuota", use_container_width=True):
             st.session_state.calendario_eventi = []
             st.rerun()
 
@@ -280,23 +483,132 @@ elif pagina == "📅 Visualizza Calendario":
         st.warning("Il calendario è vuoto. Vai alla pagina di inserimento per generare gli eventi.")
     else:
         df = pd.DataFrame(st.session_state.calendario_eventi)
-        df = df.sort_values(by="Data").reset_index(drop=True)
+        df = df.sort_values(by=["Data", "Inizio"]).reset_index(drop=True)
 
-        # Raggruppa per materia per una lettura più chiara
-        materie = df["Materia"].unique()
-        filtro = st.multiselect("Filtra per materia:", options=materie, default=list(materie))
-        df_filtrato = df[df["Materia"].isin(filtro)]
+        # ── Indice settimana corrente ────────────────────────────────────────
+        if "settimana_offset" not in st.session_state:
+            st.session_state.settimana_offset = 0
 
-        st.markdown(f"**{len(df_filtrato)} lezioni** in programma")
+        # Calcola la prima settimana disponibile (lunedì della settimana del primo evento)
+        prima_data = df["Data"].min()
+        lunedi_base = prima_data - datetime.timedelta(days=prima_data.weekday())
+        lunedi_corrente = lunedi_base + datetime.timedelta(weeks=st.session_state.settimana_offset)
+        domenica_corrente = lunedi_corrente + datetime.timedelta(days=6)
+
+        # Conta settimane totali disponibili
+        ultima_data = df["Data"].max()
+        lunedi_ultima = ultima_data - datetime.timedelta(days=ultima_data.weekday())
+        n_settimane = int((lunedi_ultima - lunedi_base).days / 7) + 1
+
+        # ── Navigazione frecce ───────────────────────────────────────────────
+        col_prec, col_info, col_succ = st.columns([1, 4, 1])
+        with col_prec:
+            if st.button("◀", use_container_width=True, disabled=(st.session_state.settimana_offset <= 0)):
+                st.session_state.settimana_offset -= 1
+                st.rerun()
+        with col_info:
+            # Mostra mese/i della settimana corrente
+            if lunedi_corrente.month == domenica_corrente.month:
+                label_mese = f"{MESI_NOMI[lunedi_corrente.month]} {lunedi_corrente.year}"
+            else:
+                label_mese = (
+                    f"{MESI_NOMI[lunedi_corrente.month]} – "
+                    f"{MESI_NOMI[domenica_corrente.month]} {domenica_corrente.year}"
+                )
+            st.markdown(f"<div class='settimana-header'>{label_mese}</div>", unsafe_allow_html=True)
+            settimana_num = st.session_state.settimana_offset + 1
+            st.markdown(
+                f"<div class='mese-label'>Settimana {settimana_num} di {n_settimane} &nbsp;·&nbsp; "
+                f"{lunedi_corrente.strftime('%d/%m')} – {domenica_corrente.strftime('%d/%m/%Y')}</div>",
+                unsafe_allow_html=True,
+            )
+        with col_succ:
+            if st.button("▶", use_container_width=True,
+                         disabled=(st.session_state.settimana_offset >= n_settimane - 1)):
+                st.session_state.settimana_offset += 1
+                st.rerun()
+
+        # ── Palette colori per materia ───────────────────────────────────────
+        tutte_materie = sorted(df["Materia"].unique())
+        colori_materia = {m: PALETTE[i % len(PALETTE)] for i, m in enumerate(tutte_materie)}
+
+        # ── Filtro materie (sidebar) ─────────────────────────────────────────
+        with st.sidebar:
+            st.divider()
+            st.markdown("**Filtra materie**")
+            filtro_materie = st.multiselect(
+                "Mostra:", options=tutte_materie, default=list(tutte_materie),
+                label_visibility="collapsed"
+            )
+
+        # Filtra il df per la settimana corrente e le materie selezionate
+        mask = (
+            (df["Data"] >= lunedi_corrente) &
+            (df["Data"] <= domenica_corrente) &
+            (df["Materia"].isin(filtro_materie))
+        )
+        df_settimana = df[mask]
+
+        # ── Griglia settimanale ──────────────────────────────────────────────
+        oggi = datetime.date.today()
+        giorni_settimana = [lunedi_corrente + datetime.timedelta(days=i) for i in range(7)]
+
+        cols = st.columns(7)
+        for col_idx, (col, giorno) in enumerate(zip(cols, giorni_settimana)):
+            with col:
+                is_oggi = (giorno == oggi)
+                cls_oggi = "giorno-oggi" if is_oggi else ""
+
+                # Header giorno
+                st.markdown(
+                    f"<div class='{cls_oggi}'>"
+                    f"<div class='giorno-header'>"
+                    f"<div class='giorno-numero'>{giorno.day}</div>"
+                    f"<div class='giorno-nome'>{GIORNI_NOMI[giorno.weekday()][:3]}</div>"
+                    f"</div></div>",
+                    unsafe_allow_html=True,
+                )
+
+                # Cella eventi
+                eventi_giorno = df_settimana[df_settimana["Data"] == giorno]
+
+                celle_html = "<div class='giorno-cella'>"
+                if eventi_giorno.empty:
+                    celle_html += "<div class='vuoto-label'>—</div>"
+                celle_html += "</div>"
+                st.markdown(celle_html, unsafe_allow_html=True)
+
+                # Eventi con pulsante elimina (fuori dall'HTML statico)
+                for _, ev in eventi_giorno.iterrows():
+                    colore = colori_materia.get(ev["Materia"], "#4F86C6")
+                    st.markdown(
+                        f"<div class='evento-card' style='background:{colore};'>"
+                        f"<div class='evento-titolo'>{ev['Materia']}</div>"
+                        f"<div class='evento-orario'>🕐 {ev['Inizio']} – {ev['Fine']}</div>"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+                    # Pulsante elimina sotto ogni evento
+                    ev_index = df[(df["Data"] == ev["Data"]) &
+                                  (df["Materia"] == ev["Materia"]) &
+                                  (df["Inizio"] == ev["Inizio"])].index
+                    if len(ev_index) > 0:
+                        real_idx = ev_index[0]
+                        if st.button("✕", key=f"del_{real_idx}", help=f"Rimuovi {ev['Materia']}"):
+                            st.session_state.calendario_eventi.pop(real_idx)
+                            st.rerun()
+
+        # ── Legenda colori ───────────────────────────────────────────────────
         st.divider()
-
-        for index, row in df_filtrato.iterrows():
-            col1, col2, col3 = st.columns([2, 5, 1])
-            with col1:
-                st.write(f"📅 **{row['Data'].strftime('%d/%m/%Y')}**")
-            with col2:
-                st.write(f"📖 *{row['Materia']}* ({row['Inizio']} – {row['Fine']})")
-            with col3:
-                if st.button("❌", key=f"del_{index}"):
-                    st.session_state.calendario_eventi.pop(index)
-                    st.rerun()
+        st.markdown("**Legenda materie**")
+        leg_cols = st.columns(min(len(tutte_materie), 4))
+        for i, materia in enumerate(tutte_materie):
+            colore = colori_materia[materia]
+            with leg_cols[i % len(leg_cols)]:
+                st.markdown(
+                    f"<div style='display:flex;align-items:center;gap:7px;margin-bottom:4px;'>"
+                    f"<div style='width:14px;height:14px;border-radius:4px;"
+                    f"background:{colore};flex-shrink:0;'></div>"
+                    f"<span style='font-size:0.82rem;'>{materia}</span></div>",
+                    unsafe_allow_html=True,
+                )
