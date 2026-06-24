@@ -313,12 +313,156 @@ def parse_programma(testo: str) -> list[dict]:
 
 
 # ── 5. NAVIGAZIONE ──────────────────────────────────────────────────────────
-st.sidebar.title("Menu Navigazione")
-pagina = st.sidebar.radio("Vai a:", ["📥 Inserimento", "📅 Visualizza Calendario"])
+if "pagina" not in st.session_state:
+    st.session_state.pagina = "inserimento"
+
+# Nasconde la sidebar di default e aggiunge padding bottom per la navbar
+st.markdown("""
+<style>
+[data-testid="stSidebar"] { display: none; }
+[data-testid="collapsedControl"] { display: none; }
+
+/* Spazio in fondo al contenuto per non finire sotto la navbar */
+.main .block-container { padding-bottom: 90px !important; }
+
+/* ── Navbar fissa in basso ── */
+.bottom-nav {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    height: 62px;
+    background: #ffffff;
+    border-top: 1px solid #e2e6f0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    z-index: 9999;
+    box-shadow: 0 -2px 12px rgba(0,0,0,0.07);
+}
+.nav-item {
+    flex: 1;
+    max-width: 80px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    cursor: pointer;
+    text-decoration: none;
+    padding: 6px 0;
+    border-radius: 12px;
+    transition: background 0.15s;
+}
+.nav-item:hover { background: #f0f2f8; }
+.nav-icon svg {
+    width: 22px; height: 22px;
+    fill: none;
+    stroke: #9aa0b4;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transition: stroke 0.15s;
+}
+.nav-item.active .nav-icon svg { stroke: #1a1a2e; }
+.nav-label {
+    font-size: 0.6rem;
+    color: #9aa0b4;
+    letter-spacing: 0.04em;
+    font-family: sans-serif;
+    font-weight: 500;
+    text-transform: uppercase;
+}
+.nav-item.active .nav-label { color: #1a1a2e; font-weight: 700; }
+</style>
+""", unsafe_allow_html=True)
+
+# Leggi parametro URL per cambio pagina
+params = st.query_params
+if "nav" in params:
+    st.session_state.pagina = params["nav"]
+    st.query_params.clear()
+
+pagina = st.session_state.pagina
+
+# SVG monocromatici per le 6 icone
+ICONE = {
+    "inserimento": (
+        # Documento con freccia su (upload)
+        '<svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>'
+        '<polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/>'
+        '<polyline points="9 15 12 12 15 15"/></svg>'
+    ),
+    "calendario": (
+        # Calendario
+        '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>'
+        '<line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/>'
+        '<line x1="3" y1="10" x2="21" y2="10"/></svg>'
+    ),
+    "vuota1": (
+        # Campanella (notifiche — per uso futuro)
+        '<svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>'
+        '<path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>'
+    ),
+    "vuota2": (
+        # Impostazioni
+        '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/>'
+        '<path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06'
+        'a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09'
+        'A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83'
+        'l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09'
+        'A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83'
+        'l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09'
+        'a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83'
+        'l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09'
+        'a1.65 1.65 0 0 0-1.51 1z"/></svg>'
+    ),
+    "vuota3": (
+        # Grafico / statistiche
+        '<svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/>'
+        '<line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>'
+    ),
+    "vuota4": (
+        # Utente / profilo
+        '<svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>'
+        '<circle cx="12" cy="7" r="4"/></svg>'
+    ),
+}
+
+LABEL_ICONE = {
+    "inserimento": "Inserisci",
+    "calendario":  "Calendario",
+    "vuota1":      "Avvisi",
+    "vuota2":      "Impostaz.",
+    "vuota3":      "Statistiche",
+    "vuota4":      "Profilo",
+}
+
+# Navbar HTML con link ?nav=... per cambiare pagina
+nav_html = "<div class='bottom-nav'>"
+for key, svg in ICONE.items():
+    attivo = "active" if pagina == key else ""
+    cliccabile = key in ("inserimento", "calendario")
+    if cliccabile:
+        nav_html += (
+            f"<a class='nav-item {attivo}' href='?nav={key}'>"
+            f"<span class='nav-icon'>{svg}</span>"
+            f"<span class='nav-label'>{LABEL_ICONE[key]}</span>"
+            f"</a>"
+        )
+    else:
+        # Icone vuote: non navigano, solo estetiche
+        nav_html += (
+            f"<div class='nav-item' style='opacity:0.45;cursor:default;'>"
+            f"<span class='nav-icon'>{svg}</span>"
+            f"<span class='nav-label'>{LABEL_ICONE[key]}</span>"
+            f"</div>"
+        )
+nav_html += "</div>"
+st.markdown(nav_html, unsafe_allow_html=True)
 
 # ── PAGINA 1 ─────────────────────────────────────────────────────────────────
-if pagina == "📥 Inserimento":
-    st.title("📥 Inserimento Programmi")
+if pagina == "inserimento":
+    st.title("Inserimento Programmi")
     st.write(
         "Carica un file **PDF** o **TXT**, oppure incolla il testo del programma. "
         "Il parser riconosce automaticamente date, giorni, orari e materie."
@@ -372,7 +516,7 @@ if pagina == "📥 Inserimento":
                 )
 
 # ── PAGINA 2 ─────────────────────────────────────────────────────────────────
-elif pagina == "📅 Visualizza Calendario":
+elif pagina == "calendario":
 
     MESI_NOMI = {
         1: "Gennaio", 2: "Febbraio", 3: "Marzo", 4: "Aprile",
@@ -472,7 +616,7 @@ elif pagina == "📅 Visualizza Calendario":
     # ── Intestazione pagina ──────────────────────────────────────────────────
     col_titolo, col_svuota = st.columns([5, 1])
     with col_titolo:
-        st.title("📅 Il tuo Calendario")
+        st.title("Il tuo Calendario")
     with col_svuota:
         st.write("")
         if st.button("🗑️ Svuota", use_container_width=True):
@@ -532,10 +676,8 @@ elif pagina == "📅 Visualizza Calendario":
         tutte_materie = sorted(df["Materia"].unique())
         colori_materia = {m: PALETTE[i % len(PALETTE)] for i, m in enumerate(tutte_materie)}
 
-        # ── Filtro materie (sidebar) ─────────────────────────────────────────
-        with st.sidebar:
-            st.divider()
-            st.markdown("**Filtra materie**")
+        # ── Filtro materie ───────────────────────────────────────────────────
+        with st.expander("🔍 Filtra materie", expanded=False):
             filtro_materie = st.multiselect(
                 "Mostra:", options=tutte_materie, default=list(tutte_materie),
                 label_visibility="collapsed"
