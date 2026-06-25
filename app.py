@@ -487,16 +487,15 @@ LABEL_ICONE = {
     "vuota2":       "Statistiche",
     "vuota3":       "Profilo",
 }
-CLICCABILI = {"inserimento", "suggerimenti", "calendario"}
+CLICCABILI = ["inserimento", "suggerimenti", "calendario"]
 
-# CSS globale + navbar HTML con onclick JS
+# ── CSS globale + navbar decorativa ─────────────────────────────────────────
 items_html = ""
 for key, svg in ICONE.items():
     attivo  = "active" if pagina == key else ""
-    opacita = "" if key in CLICCABILI else "opacity:0.38;pointer-events:none;"
-    onclick = f'onclick="document.querySelector(\'[data-testid=stBaseButton-secondary][aria-label={key}]\').click()"' if key in CLICCABILI else ""
+    opacita = "" if key in CLICCABILI else "opacity:0.38;"
     items_html += (
-        f"<div class='nav-item {attivo}' style='cursor:pointer;{opacita}' {onclick}>"
+        f"<div class='nav-item {attivo}' style='{opacita}'>"
         f"<span class='nav-icon'>{svg}</span>"
         f"<span class='nav-label'>{LABEL_ICONE[key]}</span>"
         f"</div>"
@@ -507,21 +506,23 @@ st.markdown(f"""
 [data-testid="stSidebar"] {{ display: none; }}
 [data-testid="collapsedControl"] {{ display: none; }}
 .main .block-container {{ padding-bottom: 90px !important; }}
+
+/* ── Navbar decorativa ── */
 .bottom-nav {{
     position: fixed; bottom: 0; left: 0; right: 0;
     height: 64px; background: #e8eaf0;
     border-top: 1px solid #cfd3de;
     display: flex; align-items: center; justify-content: center;
-    z-index: 9999; box-shadow: 0 -2px 14px rgba(0,0,0,0.09);
+    z-index: 100; box-shadow: 0 -2px 14px rgba(0,0,0,0.09);
+    pointer-events: none;
 }}
 .nav-item {{
     flex: 1; max-width: 90px;
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
     gap: 3px; padding: 6px 0; border-radius: 12px;
-    transition: background 0.15s; user-select: none;
+    user-select: none;
 }}
-.nav-item:hover {{ background: rgba(0,0,0,0.06); }}
 .nav-icon svg {{
     width: 22px; height: 22px; fill: none;
     stroke: #7a8099; stroke-width: 1.7;
@@ -534,29 +535,61 @@ st.markdown(f"""
     font-weight: 500; text-transform: uppercase;
 }}
 .nav-item.active .nav-label {{ color: #1a1a2e; font-weight: 700; }}
+
+/* ── Pulsanti Streamlit sovrapposti alla navbar ── */
+/* Contenitore colonne nav */
+div[data-testid="stHorizontalBlock"].nav-row {{
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    height: 64px !important;
+    z-index: 200 !important;
+    display: flex !important;
+    gap: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: transparent !important;
+}}
+/* Ogni colonna occupa 1/6 della navbar */
+div[data-testid="stHorizontalBlock"].nav-row > div[data-testid="stColumn"] {{
+    flex: 1 !important;
+    padding: 0 !important;
+    min-width: 0 !important;
+}}
+/* Il pulsante riempie tutta la cella ed è trasparente */
+div[data-testid="stHorizontalBlock"].nav-row button {{
+    width: 100% !important;
+    height: 64px !important;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    color: transparent !important;
+    font-size: 0 !important;
+    cursor: pointer !important;
+    border-radius: 0 !important;
+    padding: 0 !important;
+}}
+div[data-testid="stHorizontalBlock"].nav-row button:hover {{
+    background: rgba(0,0,0,0.05) !important;
+}}
 </style>
 <div class="bottom-nav">{items_html}</div>
 """, unsafe_allow_html=True)
 
-# Pulsanti Streamlit reali nascosti con aria-label come target JS
-st.markdown("""
-<style>
-div[data-testid="stHorizontalBlock"]:last-of-type {
-    position: fixed !important; bottom: -300px !important;
-    visibility: hidden !important; pointer-events: none !important;
-}
-</style>
-""", unsafe_allow_html=True)
-_c = st.columns(3)
+# ── Pulsanti reali sovrapposti — usiamo un div wrapper con classe nav-row ──
+st.markdown('<div class="nav-row" data-testid="stHorizontalBlock">', unsafe_allow_html=True)
+_c = st.columns(6)
 with _c[0]:
-    if st.button("inserimento", key="nav_inserimento", help="inserimento"):
+    if st.button("I", key="nav_inserimento"):
         st.session_state.pagina = "inserimento"; st.rerun()
 with _c[1]:
-    if st.button("suggerimenti", key="nav_suggerimenti", help="suggerimenti"):
+    if st.button("S", key="nav_suggerimenti"):
         st.session_state.pagina = "suggerimenti"; st.rerun()
 with _c[2]:
-    if st.button("calendario", key="nav_calendario", help="calendario"):
+    if st.button("C", key="nav_calendario"):
         st.session_state.pagina = "calendario"; st.rerun()
+st.markdown('</div>', unsafe_allow_html=True)
 
 # ── PAGINA 1: INSERIMENTO ────────────────────────────────────────────────────
 if pagina == "inserimento":
