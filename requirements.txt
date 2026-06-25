@@ -2,3 +2,4 @@ streamlit
 openai
 pdfplumber
 pandas
+requests
