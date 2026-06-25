@@ -471,43 +471,10 @@ if "code" in params and "state" in params:
 # ── 9. NAVBAR ────────────────────────────────────────────────────────────────
 pagina = st.session_state.pagina
 
-st.markdown("""
-<style>
-[data-testid="stSidebar"] { display: none; }
-[data-testid="collapsedControl"] { display: none; }
-.main .block-container { padding-bottom: 90px !important; }
-.bottom-nav {
-    position: fixed; bottom: 0; left: 0; right: 0;
-    height: 62px; background: #ffffff;
-    border-top: 1px solid #e2e6f0;
-    display: flex; align-items: center; justify-content: center;
-    z-index: 9999; box-shadow: 0 -2px 12px rgba(0,0,0,0.07);
-}
-.nav-item {
-    flex: 1; max-width: 80px;
-    display: flex; flex-direction: column;
-    align-items: center; justify-content: center;
-    gap: 3px; padding: 6px 0; border-radius: 12px;
-}
-.nav-icon svg {
-    width: 22px; height: 22px; fill: none;
-    stroke: #9aa0b4; stroke-width: 1.7;
-    stroke-linecap: round; stroke-linejoin: round;
-}
-.nav-item.active .nav-icon svg { stroke: #1a1a2e; }
-.nav-label {
-    font-size: 0.6rem; color: #9aa0b4;
-    letter-spacing: 0.04em; font-family: sans-serif;
-    font-weight: 500; text-transform: uppercase;
-}
-.nav-item.active .nav-label { color: #1a1a2e; font-weight: 700; }
-</style>
-""", unsafe_allow_html=True)
-
 ICONE = {
-    "inserimento": '<svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 12 15 15"/></svg>',
+    "inserimento":  '<svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 12 15 15"/></svg>',
     "suggerimenti": '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>',
-    "calendario":  '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>',
+    "calendario":   '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>',
     "vuota1": '<svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>',
     "vuota2": '<svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>',
     "vuota3": '<svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
@@ -516,45 +483,79 @@ LABEL_ICONE = {
     "inserimento":  "Inserisci",
     "suggerimenti": "Suggerimenti",
     "calendario":   "Calendario",
-    "vuota1": "Avvisi",
-    "vuota2": "Statistiche",
-    "vuota3": "Profilo",
+    "vuota1":       "Avvisi",
+    "vuota2":       "Statistiche",
+    "vuota3":       "Profilo",
 }
+CLICCABILI = {"inserimento", "suggerimenti", "calendario"}
 
-nav_html = "<div class='bottom-nav'>"
+# CSS globale + navbar HTML con onclick JS
+items_html = ""
 for key, svg in ICONE.items():
-    attivo = "active" if pagina == key else ""
-    opacita = "" if key in ("inserimento", "suggerimenti", "calendario") else "opacity:0.4;"
-    nav_html += (
-        f"<div class='nav-item {attivo}' style='{opacita}'>"
+    attivo  = "active" if pagina == key else ""
+    opacita = "" if key in CLICCABILI else "opacity:0.38;pointer-events:none;"
+    onclick = f'onclick="document.querySelector(\'[data-testid=stBaseButton-secondary][aria-label={key}]\').click()"' if key in CLICCABILI else ""
+    items_html += (
+        f"<div class='nav-item {attivo}' style='cursor:pointer;{opacita}' {onclick}>"
         f"<span class='nav-icon'>{svg}</span>"
         f"<span class='nav-label'>{LABEL_ICONE[key]}</span>"
         f"</div>"
     )
-nav_html += "</div>"
-st.markdown(nav_html, unsafe_allow_html=True)
 
-# Pulsanti invisibili per navigazione
+st.markdown(f"""
+<style>
+[data-testid="stSidebar"] {{ display: none; }}
+[data-testid="collapsedControl"] {{ display: none; }}
+.main .block-container {{ padding-bottom: 90px !important; }}
+.bottom-nav {{
+    position: fixed; bottom: 0; left: 0; right: 0;
+    height: 64px; background: #e8eaf0;
+    border-top: 1px solid #cfd3de;
+    display: flex; align-items: center; justify-content: center;
+    z-index: 9999; box-shadow: 0 -2px 14px rgba(0,0,0,0.09);
+}}
+.nav-item {{
+    flex: 1; max-width: 90px;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 3px; padding: 6px 0; border-radius: 12px;
+    transition: background 0.15s; user-select: none;
+}}
+.nav-item:hover {{ background: rgba(0,0,0,0.06); }}
+.nav-icon svg {{
+    width: 22px; height: 22px; fill: none;
+    stroke: #7a8099; stroke-width: 1.7;
+    stroke-linecap: round; stroke-linejoin: round;
+}}
+.nav-item.active .nav-icon svg {{ stroke: #1a1a2e; }}
+.nav-label {{
+    font-size: 0.58rem; color: #7a8099;
+    letter-spacing: 0.04em; font-family: sans-serif;
+    font-weight: 500; text-transform: uppercase;
+}}
+.nav-item.active .nav-label {{ color: #1a1a2e; font-weight: 700; }}
+</style>
+<div class="bottom-nav">{items_html}</div>
+""", unsafe_allow_html=True)
+
+# Pulsanti Streamlit reali nascosti con aria-label come target JS
 st.markdown("""
 <style>
-div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] > div[data-testid="stVerticalBlockBorderWrapper"] button {
-    background: transparent !important; border: none !important;
-    box-shadow: none !important; color: transparent !important;
-    font-size: 0 !important; height: 62px !important; width: 100% !important;
-    position: fixed; bottom: 0; z-index: 10001;
+div[data-testid="stHorizontalBlock"]:last-of-type {
+    position: fixed !important; bottom: -300px !important;
+    visibility: hidden !important; pointer-events: none !important;
 }
 </style>
 """, unsafe_allow_html=True)
-
-nav_cols = st.columns(6)
-with nav_cols[0]:
-    if st.button(" ", key="nav_inserimento"):
+_c = st.columns(3)
+with _c[0]:
+    if st.button("inserimento", key="nav_inserimento", help="inserimento"):
         st.session_state.pagina = "inserimento"; st.rerun()
-with nav_cols[1]:
-    if st.button(" ", key="nav_suggerimenti"):
+with _c[1]:
+    if st.button("suggerimenti", key="nav_suggerimenti", help="suggerimenti"):
         st.session_state.pagina = "suggerimenti"; st.rerun()
-with nav_cols[2]:
-    if st.button(" ", key="nav_calendario"):
+with _c[2]:
+    if st.button("calendario", key="nav_calendario", help="calendario"):
         st.session_state.pagina = "calendario"; st.rerun()
 
 # ── PAGINA 1: INSERIMENTO ────────────────────────────────────────────────────
