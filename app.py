@@ -19,8 +19,39 @@ except ImportError:
 # ── 1. IMPOSTAZIONI PAGINA & STATO ──────────────────────────────────────────
 st.set_page_config(page_title="Pianificatore", page_icon="📅", layout="centered")
 
+TOKEN_DIR = os.environ.get("TOKEN_DIR", "tokens")
+os.makedirs(TOKEN_DIR, exist_ok=True)
+CALENDAR_STORAGE = os.path.join(TOKEN_DIR, "calendario_salvato.json")
+
+# Funzioni per la persistenza del calendario su file locale
+def carica_calendario_salvato() -> list:
+    if os.path.exists(CALENDAR_STORAGE):
+        try:
+            with open(CALENDAR_STORAGE, "r", encoding="utf-8") as f:
+                dati = json.load(f)
+                # Riconverte le stringhe data (ISO format) in oggetti datetime.date necessari a pandas e ai calcoli
+                for ev in dati:
+                    if isinstance(ev.get("Data"), str):
+                        ev["Data"] = datetime.date.fromisoformat(ev["Data"])
+                return dati
+        except Exception:
+            return []
+    return []
+
+def salva_calendario_su_disco(eventi: list):
+    try:
+        def serializza(obj):
+            if isinstance(obj, (datetime.date, datetime.datetime)):
+                return obj.isoformat()
+            raise TypeError("Tipo non serializzabile")
+        with open(CALENDAR_STORAGE, "w", encoding="utf-8") as f:
+            json.dump(eventi, f, default=serializza, ensure_ascii=False, indent=2)
+    except Exception as e:
+        st.error(f"Errore nel salvataggio del calendario su disco: {e}")
+
+# Inizializzazione dello stato (con caricamento iniziale da disco se presente)
 for chiave, default in [
-    ("calendario_eventi", []),
+    ("calendario_eventi", carica_calendario_salvato()),
     ("pagina", "inserimento"),
     ("suggerimenti_pendenti", []),
     ("settimana_offset", 0),
@@ -31,7 +62,6 @@ for chiave, default in [
         st.session_state[chiave] = default
 
 # ── 2. CONFIGURAZIONE OAUTH ──────────────────────────────────────────────────
-TOKEN_DIR        = os.environ.get("TOKEN_DIR", "tokens")
 GMAIL_CLIENT_ID  = os.environ.get("GMAIL_CLIENT_ID", "")
 GMAIL_CLIENT_SECRET = os.environ.get("GMAIL_CLIENT_SECRET", "")
 MS_CLIENT_ID     = os.environ.get("MS_CLIENT_ID", "")
@@ -44,8 +74,6 @@ MS_REDIRECT      = APP_URL.rstrip("/") + "/"
 
 GMAIL_SCOPES     = "https://www.googleapis.com/auth/gmail.readonly"
 MS_SCOPES        = "https://graph.microsoft.com/Mail.Read https://graph.microsoft.com/Files.Read https://graph.microsoft.com/User.Read offline_access"
-
-os.makedirs(TOKEN_DIR, exist_ok=True)
 
 # ── 3. DIZIONARI ITALIANI ────────────────────────────────────────────────────
 MESI_IT = {
@@ -135,7 +163,6 @@ def gmail_access_token() -> str | None:
     token = st.session_state.gmail_token or carica_token("gmail")
     if not token:
         return None
-    # Controlla scadenza (margine 5 min)
     ottenuto = datetime.datetime.fromisoformat(token.get("ottenuto_il", "2000-01-01"))
     scadenza = ottenuto + datetime.timedelta(seconds=token.get("expires_in", 3600) - 300)
     if datetime.datetime.utcnow() > scadenza:
@@ -146,14 +173,12 @@ def gmail_access_token() -> str | None:
     return token.get("access_token")
 
 def gmail_leggi_allegati() -> list[str]:
-    """Scarica allegati PDF/TXT dalle ultime 20 email e restituisce lista di testi."""
     access = gmail_access_token()
     if not access:
         return []
     headers = {"Authorization": f"Bearer {access}"}
     testi = []
 
-    # Lista messaggi recenti
     r = requests.get(
         "https://gmail.googleapis.com/gmail/v1/users/me/messages",
         headers=headers,
@@ -198,7 +223,6 @@ def gmail_leggi_allegati() -> list[str]:
                             pass
 
         cerca_parti(det.get("payload", {}).get("parts", []))
-
     return testi
 
 # ── 6. MICROSOFT OAuth ───────────────────────────────────────────────────────
@@ -264,7 +288,6 @@ def ms_access_token() -> str | None:
     return token.get("access_token")
 
 def ms_leggi_allegati() -> list[tuple]:
-    """Legge allegati PDF/TXT dalle ultime email in Outlook."""
     access = ms_access_token()
     if not access:
         return []
@@ -399,7 +422,7 @@ def parse_tabella_orario(testo: str) -> list[dict]:
                 if corrente.weekday() == giorno_num and corrente >= oggi:
                     eventi.append({"Data": corrente, "Materia": materia, "Inizio": inizio_h, "Fine": fine_h})
                 corrente += datetime.timedelta(days=1)
-    return eventi
+    return eventos
 
 def parse_programma(testo: str) -> list[dict]:
     oggi = datetime.date.today()
@@ -461,12 +484,14 @@ if "code" in params and "state" in params:
             st.session_state.gmail_token = token
             st.session_state.pagina = "suggerimenti"
             st.success("Gmail collegato!")
+            st.rerun()
     elif state == "microsoft":
         token = ms_scambia_codice(code)
         if token:
             st.session_state.ms_token = token
             st.session_state.pagina = "suggerimenti"
             st.success("Microsoft collegato!")
+            st.rerun()
 
 # ── 9. NAVBAR ────────────────────────────────────────────────────────────────
 pagina = st.session_state.pagina
@@ -489,7 +514,6 @@ LABEL_ICONE = {
 }
 CLICCABILI = ["inserimento", "suggerimenti", "calendario"]
 
-# ── CSS globale + navbar decorativa ─────────────────────────────────────────
 items_html = ""
 for key, svg in ICONE.items():
     attivo  = "active" if pagina == key else ""
@@ -507,7 +531,7 @@ st.markdown(f"""
 [data-testid="collapsedControl"] {{ display: none; }}
 .main .block-container {{ padding-bottom: 90px !important; }}
 
-/* ── Navbar decorativa ── */
+/* ── Barra decorativa grigia fissa sullo sfondo in fondo ── */
 .bottom-nav {{
     position: fixed; bottom: 0; left: 0; right: 0;
     height: 64px; background: #e8eaf0;
@@ -536,29 +560,26 @@ st.markdown(f"""
 }}
 .nav-item.active .nav-label {{ color: #1a1a2e; font-weight: 700; }}
 
-/* ── Pulsanti Streamlit sovrapposti alla navbar ── */
-/* Contenitore colonne nav */
-div[data-testid="stHorizontalBlock"].nav-row {{
+/* ── CORREZIONE: PULSANTI STREAMLIT TRASPARENTI SOVRAPPOSTI ── */
+div.nav-row-wrapper {{
     position: fixed !important;
     bottom: 0 !important;
-    left: 0 !important;
-    right: 0 !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+    width: 100% !important;
+    max-width: 540px !important; /* Mantiene la barra allineata e centrata */
     height: 64px !important;
     z-index: 200 !important;
     display: flex !important;
-    gap: 0 !important;
-    padding: 0 !important;
-    margin: 0 !important;
     background: transparent !important;
 }}
-/* Ogni colonna occupa 1/6 della navbar */
-div[data-testid="stHorizontalBlock"].nav-row > div[data-testid="stColumn"] {{
+div.nav-row-wrapper > div[data-testid="stColumn"] {{
     flex: 1 !important;
     padding: 0 !important;
+    margin: 0 !important;
     min-width: 0 !important;
 }}
-/* Il pulsante riempie tutta la cella ed è trasparente */
-div[data-testid="stHorizontalBlock"].nav-row button {{
+div.nav-row-wrapper button {{
     width: 100% !important;
     height: 64px !important;
     background: transparent !important;
@@ -570,15 +591,15 @@ div[data-testid="stHorizontalBlock"].nav-row button {{
     border-radius: 0 !important;
     padding: 0 !important;
 }}
-div[data-testid="stHorizontalBlock"].nav-row button:hover {{
-    background: rgba(0,0,0,0.05) !important;
+div.nav-row-wrapper button:hover {{
+    background: rgba(0,0,0,0.03) !important;
 }}
 </style>
 <div class="bottom-nav">{items_html}</div>
 """, unsafe_allow_html=True)
 
-# ── Pulsanti reali sovrapposti — usiamo un div wrapper con classe nav-row ──
-st.markdown('<div class="nav-row" data-testid="stHorizontalBlock">', unsafe_allow_html=True)
+# Wrapper personalizzato per fare l'override del posizionamento a sinistra di Streamlit
+st.markdown('<div class="nav-row-wrapper">', unsafe_allow_html=True)
 _c = st.columns(6)
 with _c[0]:
     if st.button("I", key="nav_inserimento"):
@@ -621,7 +642,8 @@ if pagina == "inserimento":
                 nuovi = parse_programma(testo)
             if nuovi:
                 st.session_state.calendario_eventi.extend(nuovi)
-                st.success(f"✅ Generati **{len(nuovi)} eventi** futuri.")
+                salva_calendario_su_disco(st.session_state.calendario_eventi) # Persistenza su file JSON
+                st.success(f"✅ Generati **{len(nuovi)} eventi** futuri e salvati nel database locale.")
             else:
                 st.error("⚠️ Non ho trovato date/orari riconoscibili nel testo.")
 
@@ -630,9 +652,7 @@ elif pagina == "suggerimenti":
     st.title("Suggerimenti Automatici")
     st.write("Collega Gmail e/o Microsoft per leggere automaticamente allegati con programmi e orari.")
 
-    # ── Connessione servizi ──────────────────────────────────────────────────
     col_g, col_m = st.columns(2)
-
     with col_g:
         st.markdown("#### Gmail")
         gmail_ok = gmail_access_token() is not None
@@ -665,7 +685,6 @@ elif pagina == "suggerimenti":
 
     st.divider()
 
-    # ── Scansione ────────────────────────────────────────────────────────────
     if st.button("🔍 Scansiona email alla ricerca di programmi"):
         testi_trovati = []
         with st.spinner("Lettura Gmail..."):
@@ -689,7 +708,6 @@ elif pagina == "suggerimenti":
                         "testo_preview": testo[:400],
                     })
             if nuovi_suggerimenti:
-                # Evita duplicati già presenti
                 esistenti = {
                     (e["Data"], e["Materia"], e["Inizio"])
                     for e in st.session_state.calendario_eventi
@@ -708,10 +726,8 @@ elif pagina == "suggerimenti":
             else:
                 st.info("Allegati trovati ma nessun programma riconoscibile.")
 
-    # ── Lista suggerimenti in attesa ─────────────────────────────────────────
     if st.session_state.suggerimenti_pendenti:
         st.markdown("### Programmi trovati — conferma o rifiuta")
-
         da_rimuovere = []
         for idx, sug in enumerate(st.session_state.suggerimenti_pendenti):
             icona = "📧" if sug["origine"] == "gmail" else "💼"
@@ -733,13 +749,9 @@ elif pagina == "suggerimenti":
                     unsafe_allow_html=True,
                 )
 
-                # Anteprima primi 5 eventi
                 with st.expander(f"Anteprima eventi ({len(sug['eventi'])} totali)"):
                     for ev in sug["eventi"][:5]:
-                        st.markdown(
-                            f"📅 **{ev['Data'].strftime('%d/%m/%Y')}** — "
-                            f"{ev['Materia']} · {ev['Inizio']}–{ev['Fine']}"
-                        )
+                        st.markdown(f"📅 **{ev['Data'].strftime('%d/%m/%Y')}** — {ev['Materia']} · {ev['Inizio']}–{ev['Fine']}")
                     if len(sug["eventi"]) > 5:
                         st.markdown(f"*...e altri {len(sug['eventi'])-5} eventi*")
 
@@ -747,6 +759,7 @@ elif pagina == "suggerimenti":
                 with c1:
                     if st.button("✅ Aggiungi al calendario", key=f"acc_{idx}"):
                         st.session_state.calendario_eventi.extend(sug["eventi"])
+                        salva_calendario_su_disco(st.session_state.calendario_eventi) # Scrittura su file JSON
                         da_rimuovere.append(idx)
                         st.success(f"Aggiunti {len(sug['eventi'])} eventi!")
                 with c2:
@@ -778,12 +791,17 @@ elif pagina == "calendario":
         st.write("")
         if st.button("🗑️ Svuota", use_container_width=True):
             st.session_state.calendario_eventi = []
+            st.session_state.settimana_offset = 0
+            salva_calendario_su_disco([]) # Pulisce lo storage locale
             st.rerun()
 
     if not st.session_state.calendario_eventi:
         st.warning("Il calendario è vuoto. Vai alla pagina di inserimento per generare gli eventi.")
     else:
         df = pd.DataFrame(st.session_state.calendario_eventi)
+        
+        # Garanzia che la colonna Data sia trattata come oggetto datetime.date (evita problemi se letta da json)
+        df["Data"] = pd.to_datetime(df["Data"]).dt.date
         df = df.sort_values(by=["Data", "Inizio"]).reset_index(drop=True)
 
         prima_data = df["Data"].min()
@@ -797,7 +815,8 @@ elif pagina == "calendario":
         col_prec, col_info, col_succ = st.columns([1, 4, 1])
         with col_prec:
             if st.button("◀", use_container_width=True, disabled=(st.session_state.settimana_offset <= 0)):
-                st.session_state.settimana_offset -= 1; st.rerun()
+                st.session_state.settimana_offset -= 1
+                st.rerun()
         with col_info:
             if lunedi_corrente.month == domenica_corrente.month:
                 label_mese = f"{MESI_NOMI[lunedi_corrente.month]} {lunedi_corrente.year}"
@@ -811,7 +830,8 @@ elif pagina == "calendario":
             )
         with col_succ:
             if st.button("▶", use_container_width=True, disabled=(st.session_state.settimana_offset >= n_settimane - 1)):
-                st.session_state.settimana_offset += 1; st.rerun()
+                st.session_state.settimana_offset += 1
+                st.rerun()
 
         tutte_materie = sorted(df["Materia"].unique())
         colori_materia = {m: PALETTE[i % len(PALETTE)] for i, m in enumerate(tutte_materie)}
@@ -895,7 +915,9 @@ elif pagina == "calendario":
                                 )
                             with c2:
                                 if st.button("✕", key=f"del_{ri[0]}", help="Rimuovi"):
-                                    st.session_state.calendario_eventi.pop(ri[0]); st.rerun()
+                                    st.session_state.calendario_eventi.pop(ri[0])
+                                    salva_calendario_su_disco(st.session_state.calendario_eventi) # Riscrive su file JSON
+                                    st.rerun()
 
         st.divider()
         st.markdown("**Legenda materie**")
