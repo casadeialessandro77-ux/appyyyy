@@ -376,12 +376,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Leggi parametro URL per cambio pagina
-params = st.query_params
-if "nav" in params:
-    st.session_state.pagina = params["nav"]
-    st.query_params.clear()
-
 pagina = st.session_state.pagina
 
 # SVG monocromatici per le 6 icone
@@ -437,28 +431,55 @@ LABEL_ICONE = {
     "vuota4":      "Profilo",
 }
 
-# Navbar HTML con link ?nav=... per cambiare pagina
+# Navbar HTML — icone statiche (nessun href, nessun reload)
 nav_html = "<div class='bottom-nav'>"
 for key, svg in ICONE.items():
     attivo = "active" if pagina == key else ""
-    cliccabile = key in ("inserimento", "calendario")
-    if cliccabile:
-        nav_html += (
-            f"<a class='nav-item {attivo}' href='?nav={key}'>"
-            f"<span class='nav-icon'>{svg}</span>"
-            f"<span class='nav-label'>{LABEL_ICONE[key]}</span>"
-            f"</a>"
-        )
-    else:
-        # Icone vuote: non navigano, solo estetiche
-        nav_html += (
-            f"<div class='nav-item' style='opacity:0.45;cursor:default;'>"
-            f"<span class='nav-icon'>{svg}</span>"
-            f"<span class='nav-label'>{LABEL_ICONE[key]}</span>"
-            f"</div>"
-        )
+    opacita = "" if key in ("inserimento", "calendario") else "opacity:0.4;cursor:default;"
+    nav_html += (
+        f"<div class='nav-item {attivo}' style='{opacita}'>"
+        f"<span class='nav-icon'>{svg}</span>"
+        f"<span class='nav-label'>{LABEL_ICONE[key]}</span>"
+        f"</div>"
+    )
 nav_html += "</div>"
 st.markdown(nav_html, unsafe_allow_html=True)
+
+# Pulsanti Streamlit reali per cambiare pagina — nascosti visivamente con CSS
+st.markdown("""
+<style>
+/* Nasconde completamente i pulsanti di navigazione visivamente */
+div[data-testid='stHorizontalBlock']:has(button[kind='secondary'][key*='nav_']) {
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    height: 62px !important;
+    z-index: 10001 !important;
+    display: flex !important;
+    gap: 0 !important;
+}
+button[data-testid='baseButton-secondary'] {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    color: transparent !important;
+    font-size: 0 !important;
+    height: 62px !important;
+    width: 100% !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+col_nav = st.columns(6)
+with col_nav[0]:
+    if st.button(" ", key="nav_inserimento"):
+        st.session_state.pagina = "inserimento"
+        st.rerun()
+with col_nav[1]:
+    if st.button(" ", key="nav_calendario"):
+        st.session_state.pagina = "calendario"
+        st.rerun()
 
 # ── PAGINA 1 ─────────────────────────────────────────────────────────────────
 if pagina == "inserimento":
